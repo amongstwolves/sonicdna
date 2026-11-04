@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import io
 import json
 import os
 import sys
@@ -24,12 +23,12 @@ import httpx
 import librosa
 import numpy as np
 from dotenv import load_dotenv
-from PIL import Image
 from scipy import signal
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from app.features import spectrogram_png  # noqa: E402
 from app.schema import BOUNDS, PLANNER_OUTPUT_SCHEMA, validate_planner_output  # noqa: E402
 
 BASE_URL = "https://api.meta.ai/v1"
@@ -58,15 +57,6 @@ def describe(audio: np.ndarray) -> dict[str, float]:
         "spectral_centroid_hz": round(float(np.mean(centroid)), 1),
         "spectral_flatness": round(float(np.mean(flatness)), 5),
     }
-
-
-def spectrogram_png(audio: np.ndarray) -> bytes:
-    """Log-magnitude spectrogram as a grayscale PNG, low frequencies at the bottom."""
-    db = librosa.amplitude_to_db(np.abs(librosa.stft(audio, n_fft=2048)), ref=np.max)
-    pixels = ((db + 80).clip(0, 80) / 80 * 255).astype(np.uint8)[::-1]
-    buffer = io.BytesIO()
-    Image.fromarray(pixels).resize((512, 512)).save(buffer, format="PNG")
-    return buffer.getvalue()
 
 
 def build_payload(model: str, descriptors: dict[str, float], png: bytes | None) -> dict[str, Any]:

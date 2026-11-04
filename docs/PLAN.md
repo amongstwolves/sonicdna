@@ -22,7 +22,7 @@ If not, keep building, but pitch the AI as *directing and explaining* the search
 | Day | Window (ET) | Goal | Checkpoint | Status | Result notes |
 |---|---|---|---|---|---|
 | Tue Nov 3 | 4:30–6:00 PM | API access confirmed, decisions locked, repo scaffolded | One valid structured response from Muse | Done | Nov 4: muse-spark-1.3 returned schema- and bounds-valid JSON with spectrogram PNG + strict schema (HTTP 200, 28.3 s, 3,366 output tokens, 3,003 of them reasoning). Its structure guess was wrong on the known-answer tone: added a second oscillator and called a decaying tone sustained. |
-| Tue Nov 3 | 6:00–10:00 PM | Renderer, features, loss, target generator, random-search baseline | A loss curve from the command line | Not started | |
+| Tue Nov 3 | 6:00–10:00 PM | Renderer, features, loss, target generator, random-search baseline | A loss curve from the command line | Done | Nov 4: `scripts/loss_curve.py` on 9 dev targets, random search, budget 20, seed 0: median best loss 0.050 (ground-truth recipe at estimated pitch: 0.001-0.013). Pitch estimate tested within 25 cents on all 12 targets. Descriptors for the planner now include level over time (planner not built yet). |
 | Tue–Wed | 10:00 PM–1:00 AM | Planner + optimizer loop, experiment logging, 3-target comparison | Hybrid beats optimizer-only on ≥2 of 3 targets (go/no-go) | Not started | |
 | Wed Nov 4 | 9:00 AM–2:00 PM | UI: upload, spectrograms, timeline, score chart, A/B, 3 sliders | End-to-end run in the browser | Not started | |
 | Wed Nov 4 | 2:00–4:00 PM | One Alchemy transform, JSON export | One distinct variant | Not started | |

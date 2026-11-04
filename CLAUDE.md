@@ -23,7 +23,7 @@ while preserving a chosen property.
 6. **Alchemy v1 = brightness** (spectral-centroid target) with a preserve-pitch constraint.
    Demo prompt: "brighter and more atmospheric, keep the pitch." Only add a tremolo LFO node (rate, depth) if time allows —
    the original "metallic, preserve the rhythmic pulse" line is NOT supported by the current graph.
-7. **Stack:** single FastAPI app serving one static HTML/JS page. No separate Next.js service. Host: decide early (Render, Railway, or HF Spaces).
+7. **Stack (changed Nov 4 at Albert's request):** Next.js frontend in `frontend/` with a thin FastAPI layer in `app/api.py`. Host: decide early (Render, Railway, or HF Spaces).
 8. **Export:** JSON recipe required; WAV optional.
 
 ## Architecture
@@ -74,6 +74,14 @@ Allowed: 1–2 oscillators (sine/saw/square), ADSR, low-pass filter, waveshaping
 - **Inputs:** target descriptors, spectrogram PNG, allowed nodes + bounds, best recipe so far, recent experiments, remaining budget, user constraints.
 - **Output:** `{hypothesis, action, proposed_recipe_or_delta, expected_effect, rationale}` via structured output.
 - Reject out-of-range values or unknown nodes → retry once → deterministic fallback. Always keep best-so-far.
+
+## Planner budget (Nov 4)
+
+- Each Muse call takes about 28 s. One call proposes 3-5 candidate recipes. Cap: 4 planner calls per run.
+- The model makes structural choices; the optimizer fine-tunes continuous parameters between calls.
+- Every logged render records its source (model, optimizer or fallback) so provenance shows in the timeline.
+- Go/no-go by 2:00 PM ET on Nov 4: AI + optimizer vs optimizer-only, same render budget, 3 held-out targets. If AI doesn't win 2 of 3, stop tuning, report it honestly, and move on.
+- Feature-complete by 5:30 PM ET on Nov 4; bug fixes only after that.
 
 ## Non-negotiable rules
 

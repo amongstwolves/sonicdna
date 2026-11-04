@@ -8,6 +8,7 @@ docs don't say whether minimum/maximum are honoured.
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import jsonschema
@@ -31,6 +32,15 @@ BOUNDS: dict[str, tuple[float, float]] = {
     "delay.feedback": (0.0, 0.9),
     "delay.wet": (0.0, 1.0),
 }
+
+
+# The renderer's full recipe adds the pitch the planner isn't allowed to set.
+RECIPE_BOUNDS = {
+    **BOUNDS,
+    "oscillator.frequency_hz": (20.0, 5000.0),
+    "duration_s": (0.1, 5.0),
+}
+SAMPLE_RATE = 44100
 
 
 def _obj(**properties: Any) -> dict[str, Any]:
@@ -70,27 +80,62 @@ PLANNER_OUTPUT_SCHEMA = _obj(
 )
 
 
-def bounds_errors(recipe: dict[str, Any]) -> list[str]:
-    """Out-of-range values in a planner recipe. Switched-off nodes are skipped."""
+RECIPE_SCHEMA = _obj(
+    schema_version={"type": "string", "enum": [SCHEMA_VERSION]},
+    sample_rate={"type": "integer", "enum": [SAMPLE_RATE]},
+    duration_s=_NUM,
+    oscillator=_obj(type=_OSC_TYPE, frequency_hz=_NUM, gain=_NUM),
+    oscillator_2=_optional(_obj(type=_OSC_TYPE, gain=_NUM, frequency_ratio=_NUM)),
+    envelope=PLANNER_RECIPE_SCHEMA["properties"]["envelope"],
+    filter=PLANNER_RECIPE_SCHEMA["properties"]["filter"],
+    distortion=PLANNER_RECIPE_SCHEMA["properties"]["distortion"],
+    delay=PLANNER_RECIPE_SCHEMA["properties"]["delay"],
+)
+
+
+def bounds_errors(
+    recipe: dict[str, Any], bounds: dict[str, tuple[float, float]] = BOUNDS
+) -> list[str]:
+    """Out-of-range values in a recipe. Switched-off nodes are skipped."""
     errors = []
-    for path, (low, high) in BOUNDS.items():
-        node_name, field = path.split(".")
-        node = recipe.get(node_name)
+    for path, (low, high) in bounds.items():
+        parts = path.split(".")
+        node = recipe if len(parts) == 1 else recipe.get(parts[0])
         if node is None:
             continue
-        value = node[field]
+        value = node[parts[-1]]
         if not low <= value <= high:
             errors.append(f"{path}={value} is outside [{low}, {high}]")
     return errors
 
 
+def _schema_errors(schema: dict[str, Any], value: Any) -> list[str]:
+    return [
+        f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}"
+        for e in jsonschema.Draft202012Validator(schema).iter_errors(value)
+    ]
+
+
+def validate_recipe(recipe: Any) -> list[str]:
+    """Every reason the renderer would refuse a recipe. Empty means it is valid."""
+    return _schema_errors(RECIPE_SCHEMA, recipe) or bounds_errors(recipe, RECIPE_BOUNDS)
+
+
+def to_recipe(planner_recipe: dict[str, Any], f0_hz: float, duration_s: float) -> dict[str, Any]:
+    """A renderable recipe from a planner recipe, with pitch from the f0 estimate."""
+    recipe = copy.deepcopy(planner_recipe)
+    recipe["oscillator"]["frequency_hz"] = f0_hz
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "sample_rate": SAMPLE_RATE,
+        "duration_s": duration_s,
+        **recipe,
+    }
+
+
 def validate_planner_output(output: Any) -> list[str]:
     """Every reason to reject a planner response. An empty list means it is valid."""
-    validator = jsonschema.Draft202012Validator(PLANNER_OUTPUT_SCHEMA)
-    errors = [
-        f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}"
-        for e in validator.iter_errors(output)
-    ]
+    errors = _schema_errors(PLANNER_OUTPUT_SCHEMA, output)
     if errors:
         return errors
     return bounds_errors(output["proposed_recipe_or_delta"])
