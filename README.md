@@ -2,6 +2,8 @@
 
 SonicDNA is an autonomous sound-design lab. It takes a short reference sound and works out an editable synth recipe for it through logged experiments. Sonic Alchemy then transforms that recipe while keeping its pitch.
 
+**Live demo: https://sonicdna-ufq0.onrender.com**
+
 Built for the Meta Global AI Developer Hackathon (Indie track). The output is a recipe you can read and edit, plus the record of every experiment behind it. A recipe is a plausible reconstruction, not proof of how the original sound was made.
 
 ## What the Meta model does, and what it doesn't
