@@ -233,11 +233,20 @@ export function DecodeScreen() {
             ) : null}
             <section className="panel">
               <h2>Waveform</h2>
-              <Waveform min={analysis.waveform.min} max={analysis.waveform.max} />
+              <Waveform
+                min={analysis.waveform.min}
+                max={analysis.waveform.max}
+                audioUrl={soundId ? urls.targetAudio(soundId) : null}
+              />
             </section>
             <div className="decode-lower">
               <section className="panel">
-                <Spectrogram src={analysis.spectrogram} title="Spectrogram" note="Brighter means more energy" />
+                <Spectrogram
+                  src={analysis.spectrogram}
+                  title="Spectrogram"
+                  note="Brighter means more energy"
+                  audioUrl={soundId ? urls.targetAudio(soundId) : null}
+                />
               </section>
               <section className="panel">
                 <h2>Descriptors</h2>

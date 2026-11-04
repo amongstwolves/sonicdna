@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { clearNowPlaying, setNowPlaying } from "@/lib/playhead";
 
 /** Plays one sound from a URL. Used where no A/B comparison is needed. */
 export function PlayButton({ src, label = "Play" }: { src: string; label?: string }) {
@@ -13,6 +14,7 @@ export function PlayButton({ src, label = "Play" }: { src: string; label?: strin
     return () => {
       audio.current?.pause();
       audio.current = null;
+      clearNowPlaying(src);
       setPlaying(false);
     };
   }, [src]);
@@ -20,19 +22,27 @@ export function PlayButton({ src, label = "Play" }: { src: string; label?: strin
   function toggle() {
     if (playing) {
       audio.current?.pause();
+      clearNowPlaying(src);
       setPlaying(false);
       return;
     }
     const element = audio.current ?? new Audio(src);
     audio.current = element;
-    element.onended = () => setPlaying(false);
+    element.onended = () => {
+      clearNowPlaying(src);
+      setPlaying(false);
+    };
     element.onerror = () => {
+      clearNowPlaying(src);
       setPlaying(false);
       setFailed(true);
     };
     element.currentTime = 0;
     element.play().then(
-      () => setPlaying(true),
+      () => {
+        setNowPlaying(src, () => element.currentTime / element.duration);
+        setPlaying(true);
+      },
       () => setFailed(true),
     );
   }

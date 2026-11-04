@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { clearNowPlaying, setNowPlaying } from "@/lib/playhead";
 
 type Side = "a" | "b";
 
@@ -44,6 +45,9 @@ export function ABPlayer({
   const sideRef = useRef<Side | null>(null);
   const bar = useRef<HTMLDivElement | null>(null);
   const stopRef = useRef<() => void>(() => undefined);
+  const playingUrl = useRef<string | null>(null);
+  const urlFor = useRef<Record<Side, string | null>>({ a: referenceUrl, b: renderUrl });
+  urlFor.current = { a: referenceUrl, b: renderUrl };
 
   const getContext = () => (context.current ??= new AudioContext());
 
@@ -60,6 +64,8 @@ export function ABPlayer({
       source.current = null;
     }
     if (stopActive === stopRef.current) stopActive = null;
+    clearNowPlaying(playingUrl.current);
+    playingUrl.current = null;
     sideRef.current = null;
     setSide(null);
     if (bar.current) bar.current.style.transform = "scaleX(0)";
@@ -90,7 +96,12 @@ export function ABPlayer({
     offsetAt.current = offset;
     sideRef.current = which;
     setSide(which);
-  }, []);
+    clearNowPlaying(playingUrl.current);
+    playingUrl.current = urlFor.current[which];
+    if (playingUrl.current) {
+      setNowPlaying(playingUrl.current, () => (position() % buffer.duration) / buffer.duration);
+    }
+  }, [position]);
 
   const load = useCallback(
     (which: Side, url: string | null) => {
@@ -145,6 +156,7 @@ export function ABPlayer({
     () => () => {
       if (source.current) source.current.stop();
       if (stopActive === stopRef.current) stopActive = null;
+      clearNowPlaying(playingUrl.current);
       void context.current?.close();
       context.current = null;
     },

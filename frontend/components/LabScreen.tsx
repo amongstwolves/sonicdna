@@ -500,11 +500,16 @@ export function LabScreen() {
               </div>
               <div className="spectro-pair">
                 <div className="panel">
-                  <Spectrogram src={urls.targetSpectrogram(run.target)} title={`Reference: ${targetLabel(run.target)}`} />
+                  <Spectrogram
+                    src={urls.targetSpectrogram(run.target)}
+                    title={`Reference: ${targetLabel(run.target)}`}
+                    audioUrl={urls.targetAudio(run.target)}
+                  />
                 </div>
                 <div className="panel">
                   <Spectrogram
                     src={renderedSpectrogram}
+                    audioUrl={bUrl}
                     title={showingEdit ? "Your edit" : shown ? `Rendered: render ${renderNumber(shown)}` : "Rendered"}
                     emptyText={
                       unrenderable

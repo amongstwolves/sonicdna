@@ -56,7 +56,7 @@ export function VariantCard({
         renderUrl={variant.audio}
         renderLabel="This variation"
       />
-      <Spectrogram src={variant.spectrogram} title="Spectrogram" />
+      <Spectrogram src={variant.spectrogram} title="Spectrogram" audioUrl={variant.audio} />
       <dl className="variant-facts">
         <div>
           <dt>Measured brightness</dt>
