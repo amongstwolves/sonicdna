@@ -7,7 +7,7 @@ while preserving a chosen property.
 
 - Full product/technical spec: `docs/SPEC.md` (source of truth for requirements)
 - Build schedule, checkpoints and task status: `docs/PLAN.md` (keep it updated as work finishes)
-- **Deadline: Wed Nov 4, 2026, 9:00 PM ET** (reconfirm in official rules). Target submit 8:00 PM ET.
+- **Deadline: Wed Nov 4, 2026, 9:00 PM ET** (confirmed in the participant guide). Target submit 8:00 PM ET.
 
 ## Locked decisions (these override anything open in SPEC.md §15)
 

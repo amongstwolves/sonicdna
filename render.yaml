@@ -1,7 +1,7 @@
-# Public demo on Render's free tier. Do not add META_API_KEY here.
+# Public demo on Render. Do not add META_API_KEY here.
 services:
   - type: web
     name: sonicdna
     runtime: docker
-    plan: free
+    plan: starter
     healthCheckPath: /api/health
