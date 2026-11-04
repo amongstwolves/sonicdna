@@ -15,13 +15,13 @@ If not, keep building, but pitch the AI as *directing and explaining* the search
 | 1 | Demo line ("metallic, preserve the rhythmic pulse") doesn't match the synth: no LFO, no FM/ring mod | Alchemy v1 = brightness, preserve pitch. Add tremolo LFO only if time allows | Not started |
 | 2 | AI's role vs baseline undefined | Model = structural choices; optimizer = continuous tuning. Compare hybrid vs optimizer-only vs random | Not started |
 | 3 | Model input mode | Spectrogram PNG + descriptors to the model; pitch from f0 estimate | Not started |
-| 4 | Open decisions in SPEC §15 | Locked in CLAUDE.md. Still to do: confirm Muse API access + one structured-output call | Not started |
+| 4 | Open decisions in SPEC §15 | Locked in CLAUDE.md. Muse API access and one structured-output call confirmed Nov 4 | Done |
 
 ## Schedule
 
 | Day | Window (ET) | Goal | Checkpoint | Status | Result notes |
 |---|---|---|---|---|---|
-| Tue Nov 3 | 4:30–6:00 PM | API access confirmed, decisions locked, repo scaffolded | One valid structured response from Muse | Not started | |
+| Tue Nov 3 | 4:30–6:00 PM | API access confirmed, decisions locked, repo scaffolded | One valid structured response from Muse | Done | Nov 4: muse-spark-1.3 returned schema- and bounds-valid JSON with spectrogram PNG + strict schema (HTTP 200, 28.3 s, 3,366 output tokens, 3,003 of them reasoning). Its structure guess was wrong on the known-answer tone: added a second oscillator and called a decaying tone sustained. |
 | Tue Nov 3 | 6:00–10:00 PM | Renderer, features, loss, target generator, random-search baseline | A loss curve from the command line | Not started | |
 | Tue–Wed | 10:00 PM–1:00 AM | Planner + optimizer loop, experiment logging, 3-target comparison | Hybrid beats optimizer-only on ≥2 of 3 targets (go/no-go) | Not started | |
 | Wed Nov 4 | 9:00 AM–2:00 PM | UI: upload, spectrograms, timeline, score chart, A/B, 3 sliders | End-to-end run in the browser | Not started | |

@@ -87,6 +87,7 @@ Allowed: 1–2 oscillators (sine/saw/square), ADSR, low-pass filter, waveshaping
 ## Working style for this session
 
 - Get the render → evaluate loop working end to end on the command line before building any UI.
+- Write tests for each feature as it is built, in `tests/`, and run `.venv/bin/pytest` along the way. A feature isn't Done until its tests pass. Mock the network so tests need no API key.
 - After each checkpoint in `docs/PLAN.md`, run it, record the result there, and mark the task Done.
 - If behind schedule, cut in this order: fancy visualisation → extra effects → free-form Alchemy prompts → recorded-audio support.
 - Keep secrets (Meta API key) in `.env`, never commit them.
