@@ -1,6 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AlchemyScreen } from "@/components/AlchemyScreen";
 import { Disclosure } from "@/components/Disclosure";
 import { defaultRun } from "@/components/LabScreen";
 import { LossChart } from "@/components/LossChart";
@@ -163,23 +162,12 @@ describe("loss chart", () => {
   });
 });
 
-describe("alchemy stub", () => {
-  it("is plainly not connected and shows no result", () => {
-    const { container } = render(<AlchemyScreen />);
-    expect(container.textContent).toContain("Not yet connected");
-    expect(container.textContent).toContain("No variation has been generated");
-    const generate = screen.getByRole("button", { name: /Generate variations/ }) as HTMLButtonElement;
-    expect(generate.disabled).toBe(true);
-    expect(container.textContent).not.toMatch(/loss|\d\.\d{2}/i);
-  });
-});
-
 describe("disclosure", () => {
   it("says what live runs send and that replays send nothing", () => {
     const { container } = render(<Disclosure />);
     expect(container.textContent).toContain("descriptors and a spectrogram image");
     expect(container.textContent).toContain("Meta's model API");
-    expect(container.textContent).toContain("Replays send nothing");
+    expect(container.textContent).toContain("Optimizer-only runs and replays send nothing");
   });
 });
 
@@ -192,6 +180,7 @@ describe("default run", () => {
     entries: 1,
     skipped_lines: 0,
     best_loss: 0.1,
+    status: "logged",
   });
 
   it("prefers hybrid over baselines, and honours a target", () => {

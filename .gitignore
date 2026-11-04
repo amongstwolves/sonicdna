@@ -6,3 +6,4 @@ runs/
 *.wav
 .vscode/
 .DS_Store
+!demo/*.wav

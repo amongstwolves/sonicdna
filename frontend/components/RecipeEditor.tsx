@@ -1,6 +1,7 @@
 "use client";
 
 import type { Meta } from "@/lib/api";
+import { downloadJson } from "@/lib/download";
 import {
   formatParam,
   fromPosition,
@@ -13,15 +14,6 @@ import {
   type SliderDef,
 } from "@/lib/recipe";
 import { describeRecipe, formatLoss, type Recipe } from "@/lib/runs";
-
-function downloadJson(recipe: Recipe, filename: string) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(recipe, null, 2)], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
 export function RecipeEditor({
   meta,

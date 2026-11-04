@@ -27,6 +27,9 @@ describe("UI wording rules", () => {
     ["the log's score field", /\bscore\b/i],
     ["a percent sign after a number or value", /(\d|\}|toFixed\([^)]*\))\s*%/],
     ["a percent string", /["'`]\s*%/],
+    ["the old Alchemy stub", /not yet connected|screen preview|not connected/i],
+    ["held-out targets being closed", /aren.t analysed|isn.t analysed|can.t be analysed|play only/i],
+    ["the old upload wording", /nothing is sent to a model/i],
   ])("source never mentions %s", (_name, pattern) => {
     const hits = files.filter((file) => pattern.test(readFileSync(file, "utf8")));
     expect(hits.map((file) => relative(ROOT, file))).toEqual([]);

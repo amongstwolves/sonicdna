@@ -33,17 +33,20 @@ export function bestPath(points: { x: number; y: number | null }[]): string {
 export function LossChart({
   allEntries,
   revealed,
+  capacity = 0,
   selectedPosition,
   onSelect,
 }: {
   allEntries: Entry[];
   revealed: number;
+  /** Width of the x axis for a live run, whose entries are still arriving. */
+  capacity?: number;
   selectedPosition: number | null;
   onSelect: (position: number) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const points = bestSoFarSeries(allEntries.slice(0, revealed));
-  const count = Math.max(allEntries.length, 2);
+  const count = Math.max(allEntries.length, capacity, 2);
   const yMax = chartMax(allEntries);
   const x = (position: number) => MARGIN.left + (position / (count - 1)) * PLOT_W;
   const y = (value: number) => MARGIN.top + (1 - value / yMax) * PLOT_H;

@@ -1,5 +1,5 @@
 export const DISCLOSURE_TEXT =
-  "Live runs send descriptors and a spectrogram image to Meta's model API. Replays send nothing.";
+  "Live AI runs send descriptors and a spectrogram image to Meta's model API. Optimizer-only runs and replays send nothing.";
 
 export function Disclosure() {
   return (

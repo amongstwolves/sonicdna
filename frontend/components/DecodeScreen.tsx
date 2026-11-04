@@ -34,7 +34,7 @@ const DESCRIPTORS: { key: string; label: string; plain: string; format: (v: numb
 type Selection =
   | { kind: "none" }
   | { kind: "target"; name: string }
-  | { kind: "upload"; name: string; url: string };
+  | { kind: "upload"; name: string; id: string };
 
 export function DecodeScreen() {
   const router = useRouter();
@@ -90,7 +90,7 @@ export function DecodeScreen() {
       const result = await api.analyzeUpload(file);
       if (id !== requestId.current) return;
       setAnalysis(result);
-      setSelection({ kind: "upload", name: file.name, url: URL.createObjectURL(file) });
+      setSelection({ kind: "upload", name: file.name, id: result.upload_id as string });
     } catch (failure) {
       if (id === requestId.current) setError(failure);
     } finally {
@@ -98,8 +98,8 @@ export function DecodeScreen() {
     }
   }
 
-  const dev = targets.filter((t) => !t.held_out);
-  const heldOut = targets.filter((t) => t.held_out);
+  const soundId =
+    selection.kind === "target" ? selection.name : selection.kind === "upload" ? selection.id : null;
   const selectedTarget =
     selection.kind === "target" ? targets.find((t) => t.name === selection.name) : undefined;
   const limits = meta?.upload_limits;
@@ -145,7 +145,8 @@ export function DecodeScreen() {
                     limits.max_bytes / (1024 * 1024)
                   } MB, not clipped.`
                 : "One isolated sound, 1 to 5 seconds."}{" "}
-              Analysis runs on this server. Nothing is sent to a model.
+              The file is stored on the server. Nothing goes to a model until a live AI run is
+              started.
             </small>
           </div>
         </section>
@@ -155,7 +156,7 @@ export function DecodeScreen() {
           <p className="muted">Made with our own synth, so the true recipe is known.</p>
           {listError ? <ErrorNote error={listError} /> : null}
           <ul className="target-list">
-            {dev.map((target) => (
+            {targets.map((target) => (
               <li key={target.name}>
                 <button
                   type="button"
@@ -165,29 +166,12 @@ export function DecodeScreen() {
                   onClick={() => router.replace(`/decode?target=${target.name}`)}
                 >
                   {target.name}
+                  {target.held_out ? <span className="held-out-tag">held out</span> : null}
                   {!target.available ? " (audio missing)" : ""}
                 </button>
               </li>
             ))}
           </ul>
-          {heldOut.length > 0 ? (
-            <>
-              <h3>Held out for final evaluation</h3>
-              <p className="muted">These can be played. They aren&apos;t analysed here.</p>
-              <ul className="held-out-list">
-                {heldOut.map((target) => (
-                  <li key={target.name}>
-                    <span>{target.name}</span>
-                    {target.available ? (
-                      <PlayButton src={urls.targetAudio(target.name)} />
-                    ) : (
-                      <small>audio missing</small>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
         </section>
       </aside>
 
@@ -207,20 +191,26 @@ export function DecodeScreen() {
           <>
             <div className="panel sound-header">
               <div>
-                <small className="eyebrow">{selection.kind === "upload" ? "Uploaded sound" : "Test sound"}</small>
-                <h1>{analysis.name}</h1>
+                <small className="eyebrow">
+                  {selection.kind === "upload" || soundId?.startsWith("upload_")
+                    ? "Uploaded sound"
+                    : selectedTarget?.held_out
+                      ? "Test sound, held out"
+                      : "Test sound"}
+                </small>
+                <h1>{soundId?.startsWith("upload_") && selection.kind !== "upload" ? "Uploaded sound" : analysis.name}</h1>
               </div>
               <div className="row">
-                {selection.kind === "target" ? <PlayButton src={urls.targetAudio(selection.name)} /> : null}
-                {selection.kind === "upload" ? <PlayButton src={selection.url} /> : null}
+                {soundId ? <PlayButton src={urls.targetAudio(soundId)} /> : null}
                 {selectedTarget?.has_runs ? (
-                  <Link className="button button-primary" href={`/lab?target=${selectedTarget.name}`}>
-                    See its experiments →
+                  <Link className="button" href={`/lab?target=${selectedTarget.name}`}>
+                    See its experiments
                   </Link>
-                ) : selection.kind === "upload" ? (
-                  <span className="muted" title="Live runs are not connected yet">
-                    Live runs on uploads aren&apos;t connected yet
-                  </span>
+                ) : null}
+                {soundId ? (
+                  <Link className="button button-primary" href={`/lab?new=${soundId}`}>
+                    Rebuild it in the Lab →
+                  </Link>
                 ) : null}
               </div>
             </div>

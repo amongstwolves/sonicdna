@@ -2,8 +2,9 @@
 
     .venv/bin/uvicorn app.api:app --port 8000
 
-Replays read logged runs and make no model calls. The log's `score` field is dropped on
-purpose so the UI cannot show it. Runs and targets are looked up by validated name only.
+Replays read logged runs and make no model calls. Live runs and Alchemy are started here
+and do their work in app/search.py and app/alchemy.py. The log's `score` field is dropped
+on purpose so the UI cannot show it. Runs and targets are looked up by validated name only.
 """
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ import json
 import math
 import os
 import re
+import secrets
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -23,10 +27,13 @@ import soundfile
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 
+from app.alchemy import AlchemyError, generate_variants, parse_goal
 from app.dsp import render as render_recipe
 from app.features import Features, extract, preprocess, spectrogram_png
 from app.loss import WEIGHTS, compare
+from app.planner import planner_from_env
 from app.schema import RECIPE_BOUNDS, SAMPLE_RATE, validate_recipe
+from app.search import run_hybrid, run_optimizer_only
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,8 +47,10 @@ CLIP_LEVEL = 0.999
 MAX_CLIPPED_FRACTION = 0.001
 SILENCE_PEAK = 1e-3
 WAVEFORM_POINTS = 480
+MAX_LIVE_BUDGET = 40
 
 _NAME = re.compile(r"[A-Za-z0-9_]+")
+_UPLOAD_ID = re.compile(r"upload_[0-9a-f]{12}")
 _RUN_ID = re.compile(r"(?P<target>[A-Za-z0-9_]+)-(?P<mode>[A-Za-z0-9_]+)-seed(?P<seed>\d+)")
 _ENTRY_FIELDS = (
     "timestamp",
@@ -59,9 +68,21 @@ _ENTRY_FIELDS = (
 
 app = FastAPI(title="SonicDNA API")
 
+_LIVE_LOCK = threading.Lock()
+_LIVE_RUNS: dict[str, dict[str, Any]] = {}
+
 
 def _runs_dir() -> Path:
     return Path(os.environ.get("SONICDNA_RUNS_DIR") or ROOT / "runs")
+
+
+def _live_dir() -> Path:
+    """Live runs and stored uploads, kept apart from benchmark and demo logs."""
+    return Path(os.environ.get("SONICDNA_LIVE_DIR") or ROOT / "runs" / "live")
+
+
+def _uploads_dir() -> Path:
+    return _live_dir() / "uploads"
 
 
 def _targets_dir() -> Path:
@@ -81,7 +102,12 @@ def _manifest() -> dict[str, Any]:
 
 
 def _target_wav(name: str) -> Path:
-    """The WAV for a target listed in the manifest. 404 for any other name."""
+    """The WAV for a manifest target or stored upload. 404 for any other name."""
+    if _UPLOAD_ID.fullmatch(name):
+        path = _uploads_dir() / f"{name}.wav"
+        if not path.is_file():
+            raise _error(404, "unknown_target", "That upload is no longer available.")
+        return path
     if not _NAME.fullmatch(name) or name not in _manifest():
         raise _error(404, "unknown_target", f"There is no target called '{name}'.")
     path = _targets_dir() / f"{name}.wav"
@@ -97,10 +123,6 @@ def _target_wav(name: str) -> Path:
 
 def _is_held_out(name: str) -> bool:
     return _manifest().get(name, {}).get("split") == "held_out"
-
-
-def _has_logged_run(target: str) -> bool:
-    return any(run["target"] == target for run in _list_runs())
 
 
 def _wav_bytes(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> bytes:
@@ -172,11 +194,12 @@ def _run_path(run_id: str) -> tuple[Path, re.Match[str]]:
     match = _RUN_ID.fullmatch(run_id)
     if match is None:
         raise _error(404, "unknown_run", "There is no logged run with that name.")
-    runs_dir = _runs_dir().resolve()
-    path = (runs_dir / f"{run_id}.jsonl").resolve()
-    if not path.is_relative_to(runs_dir) or not path.is_file():
-        raise _error(404, "unknown_run", "There is no logged run with that name.")
-    return path, match
+    for directory in (_live_dir(), _runs_dir()):
+        runs_dir = directory.resolve()
+        path = (runs_dir / f"{run_id}.jsonl").resolve()
+        if path.is_relative_to(runs_dir) and path.is_file():
+            return path, match
+    raise _error(404, "unknown_run", "There is no logged run with that name.")
 
 
 def _read_run(path: Path, mode: str) -> tuple[list[dict[str, Any]], int]:
@@ -198,12 +221,22 @@ def _read_run(path: Path, mode: str) -> tuple[list[dict[str, Any]], int]:
     return entries, skipped
 
 
+def _run_status(run_id: str) -> str:
+    """ "logged" for anything not started by this server process."""
+    with _LIVE_LOCK:
+        live = _LIVE_RUNS.get(run_id)
+    return "logged" if live is None else live["status"]
+
+
 def _list_runs() -> list[dict[str, Any]]:
-    runs_dir = _runs_dir()
-    if not runs_dir.is_dir():
-        return []
+    paths = sorted(
+        path
+        for directory in (_runs_dir(), _live_dir())
+        if directory.is_dir()
+        for path in directory.glob("*.jsonl")
+    )
     runs = []
-    for path in sorted(runs_dir.glob("*.jsonl")):
+    for path in paths:
         match = _RUN_ID.fullmatch(path.stem)
         if match is None:
             continue
@@ -218,6 +251,7 @@ def _list_runs() -> list[dict[str, Any]]:
                 "entries": len(entries),
                 "skipped_lines": skipped,
                 "best_loss": min(losses) if losses else None,
+                "status": _run_status(path.stem),
             }
         )
     return runs
@@ -291,28 +325,18 @@ def target_audio(name: str) -> Response:
 @app.get("/api/targets/{name}/analysis")
 def target_analysis(name: str) -> dict[str, Any]:
     _target_wav(name)
-    if _is_held_out(name):
-        raise _error(
-            403,
-            "held_out",
-            f"'{name}' is held out for the final evaluation. You can play it, but it isn't analysed.",
-            "Pick a development target or upload a WAV.",
-        )
     return {"name": name, "warnings": [], **_analysis(_reference(name)[0])}
 
 
 @app.get("/api/targets/{name}/spectrogram")
 def target_spectrogram(name: str) -> Response:
     _target_wav(name)
-    # A held-out target's picture only appears once a final-evaluation run has been logged.
-    if _is_held_out(name) and not _has_logged_run(name):
-        raise _error(403, "held_out", f"'{name}' is held out for the final evaluation.")
     return Response(spectrogram_png(_reference(name)[0]), media_type="image/png")
 
 
 @app.post("/api/analyze")
 def analyze_upload(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Validate an uploaded WAV and analyse it. Runs locally; nothing is stored or sent on."""
+    """Validate and analyse an uploaded WAV. Stored locally so a live run can use it."""
     payload = file.file.read(MAX_UPLOAD_BYTES + 1)
     audio, sample_rate, warnings = _validate_upload(file.filename or "", payload)
     processed = preprocess(audio, sample_rate)
@@ -324,7 +348,15 @@ def analyze_upload(file: UploadFile = File(...)) -> dict[str, Any]:
             f"Only {sounding:.2f} s remains once leading silence is removed.",
             f"Use a sound with at least {MIN_SOUNDING_S} s of audio after it starts.",
         )
-    return {"name": file.filename, "warnings": warnings, **_analysis(processed)}
+    upload_id = f"upload_{secrets.token_hex(6)}"
+    _uploads_dir().mkdir(parents=True, exist_ok=True)
+    soundfile.write(_uploads_dir() / f"{upload_id}.wav", processed, SAMPLE_RATE, subtype="FLOAT")
+    return {
+        "name": file.filename,
+        "upload_id": upload_id,
+        "warnings": warnings,
+        **_analysis(processed),
+    }
 
 
 def _validate_upload(filename: str, payload: bytes) -> tuple[np.ndarray, int, list[str]]:
@@ -414,6 +446,8 @@ def run_entries(
 ) -> dict[str, Any]:
     """A logged run, for replay. The client paces the reveal; this only reads the log."""
     path, match = _run_path(run_id)
+    # Status first, so "finished" can never arrive without the entries it covers.
+    status = _run_status(run_id)
     entries, skipped = _read_run(path, match["mode"])
     start = max(after + 1, 0)
     stop = None if limit is None else start + limit
@@ -422,7 +456,10 @@ def run_entries(
         "target": match["target"],
         "mode": match["mode"],
         "seed": int(match["seed"]),
-        "is_replay": True,
+        "is_replay": status == "logged",
+        "status": status,
+        "budget": _LIVE_RUNS.get(run_id, {}).get("budget"),
+        "error": _LIVE_RUNS.get(run_id, {}).get("error"),
         "total": len(entries),
         "skipped_lines": skipped,
         "entries": entries[start:stop],
@@ -460,11 +497,97 @@ def render_edit(request: RenderRequest) -> dict[str, Any]:
     }
     if request.target is None:
         result["not_scored_reason"] = "No reference was given."
-    elif _is_held_out(request.target):
-        _target_wav(request.target)
-        result["not_scored_reason"] = "Manual edits aren't scored against held-out targets."
     else:
         comparison = compare(_reference(request.target)[1], extract(audio))
         result["loss"] = comparison.loss
         result["components"] = comparison.components
+    return result
+
+
+class RunRequest(BaseModel):
+    target: str
+    mode: str = "hybrid"
+    budget: int = 20
+    seed: int = 0
+
+
+def _execute_live_run(
+    run_id: str, request: RunRequest, features: Features, png: bytes, planner: Any
+) -> None:
+    path = _live_dir() / f"{run_id}.jsonl"
+    try:
+        if request.mode == "hybrid":
+            run_hybrid(
+                features, features.f0_hz, request.budget, request.seed, planner, png, path
+            )
+        else:
+            run_optimizer_only(
+                features, features.f0_hz, request.budget, request.seed, path, "restart_local"
+            )
+        status, error = "finished", None
+    except Exception as failure:  # A background thread has nobody else to report to.
+        status, error = "failed", type(failure).__name__
+    with _LIVE_LOCK:
+        _LIVE_RUNS[run_id].update(status=status, error=error)
+
+
+@app.post("/api/runs", status_code=202)
+def start_run(request: RunRequest) -> dict[str, Any]:
+    """Start one live run in the background, then poll GET /api/runs/{id}?after=N."""
+    if request.mode not in ("hybrid", "optimizer_only"):
+        raise _error(422, "unknown_mode", f"There is no run mode called '{request.mode}'.")
+    if not 1 <= request.budget <= MAX_LIVE_BUDGET:
+        raise _error(422, "bad_budget", f"Budget must be 1 to {MAX_LIVE_BUDGET} renders.")
+    audio = _reference(request.target)[0]
+    features = extract(audio, estimate_pitch=True)
+    if features.f0_hz is None:
+        raise _error(
+            422,
+            "no_pitch",
+            "No clear pitch was found in this sound, so it can't be reconstructed.",
+            "Use an isolated, tonal sound.",
+        )
+    planner = None
+    if request.mode == "hybrid":
+        try:
+            planner = planner_from_env(ROOT)
+        except SystemExit as error:
+            raise _error(
+                503,
+                "no_api_key",
+                "Live AI runs need a Meta API key on the server.",
+                "Set META_API_KEY in .env, or replay a logged run.",
+            ) from error
+    run_id = f"{request.target}-{request.mode}-seed{int(time.time() * 1000)}"
+    with _LIVE_LOCK:
+        if any(run["status"] == "running" for run in _LIVE_RUNS.values()):
+            raise _error(409, "run_in_progress", "A live run is already going.", "Wait for it.")
+        _LIVE_RUNS[run_id] = {"status": "running", "budget": request.budget, "error": None}
+    # Created before replying, so polling can start straight away.
+    _live_dir().mkdir(parents=True, exist_ok=True)
+    (_live_dir() / f"{run_id}.jsonl").touch()
+    threading.Thread(
+        target=_execute_live_run,
+        args=(run_id, request, features, spectrogram_png(audio), planner),
+        daemon=True,
+    ).start()
+    return {"id": run_id, "status": "running", "budget": request.budget}
+
+
+class AlchemyRequest(BaseModel):
+    recipe: dict[str, Any]
+    prompt: str
+
+
+@app.post("/api/alchemy")
+def alchemy(request: AlchemyRequest) -> dict[str, Any]:
+    """Measured variants of a recipe. Rule-based: this makes no model call."""
+    try:
+        result = generate_variants(request.recipe, parse_goal(request.prompt))
+    except AlchemyError as error:
+        raise _error(422, "alchemy_refused", str(error)) from error
+    for variant in result["variants"]:
+        audio = render_recipe(variant["recipe"])
+        variant["audio"] = _data_url("audio/wav", _wav_bytes(audio))
+        variant["spectrogram"] = _data_url("image/png", spectrogram_png(audio))
     return result

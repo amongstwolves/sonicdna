@@ -68,13 +68,15 @@ export function TimelineCard({
 
 export function Timeline({
   entries,
-  total,
+  countLabel,
+  emptyText,
   selectedPosition,
   bestIndex,
   onSelect,
 }: {
   entries: Entry[];
-  total: number;
+  countLabel: string;
+  emptyText: string;
   selectedPosition: number | null;
   bestIndex: number | null;
   onSelect: (position: number) => void;
@@ -83,9 +85,7 @@ export function Timeline({
     <section className="timeline" aria-label="Experiment timeline">
       <header className="timeline-header">
         <h2>Experiment log</h2>
-        <span className="mono">
-          {entries.length} of {total} renders
-        </span>
+        <span className="mono">{countLabel}</span>
       </header>
       <ol>
         {entries.map((entry, position) => (
@@ -99,11 +99,7 @@ export function Timeline({
           </li>
         ))}
       </ol>
-      {entries.length === 0 ? (
-        <p className="timeline-empty">
-          {total === 0 ? "This log has no entries." : "Press play to reveal the log, one render at a time."}
-        </p>
-      ) : null}
+      {entries.length === 0 ? <p className="timeline-empty">{emptyText}</p> : null}
     </section>
   );
 }

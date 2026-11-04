@@ -20,6 +20,8 @@ export interface Entry {
   best_loss: number | null;
 }
 
+export type RunStatus = "running" | "finished" | "failed" | "logged";
+
 export interface RunSummary {
   id: string;
   target: string;
@@ -28,6 +30,7 @@ export interface RunSummary {
   entries: number;
   skipped_lines: number;
   best_loss: number | null;
+  status: RunStatus;
 }
 
 export interface RunDetail {
@@ -36,6 +39,9 @@ export interface RunDetail {
   mode: string;
   seed: number;
   is_replay: boolean;
+  status: RunStatus;
+  budget: number | null;
+  error: string | null;
   total: number;
   skipped_lines: number;
   entries: Entry[];

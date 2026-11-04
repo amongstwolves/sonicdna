@@ -8,7 +8,13 @@ interface Props {
   referenceUrl: string;
   renderUrl: string | null;
   renderLabel: string;
+  referenceLabel?: string;
+  referenceNote?: string;
+  compact?: boolean;
 }
+
+/** Only one player sounds at a time, so several cards on a page can't overlap. */
+let stopActive: (() => void) | null = null;
 
 async function decode(context: AudioContext, url: string): Promise<AudioBuffer> {
   const response = await fetch(url);
@@ -17,7 +23,14 @@ async function decode(context: AudioContext, url: string): Promise<AudioBuffer> 
 }
 
 /** Plays backend WAVs only. Switching sides keeps the position, so the two line up by ear. */
-export function ABPlayer({ referenceUrl, renderUrl, renderLabel }: Props) {
+export function ABPlayer({
+  referenceUrl,
+  renderUrl,
+  renderLabel,
+  referenceLabel = "Reference",
+  referenceNote = "The original sound",
+  compact = false,
+}: Props) {
   const context = useRef<AudioContext | null>(null);
   const buffers = useRef<Record<Side, AudioBuffer | null>>({ a: null, b: null });
   const source = useRef<AudioBufferSourceNode | null>(null);
@@ -30,6 +43,7 @@ export function ABPlayer({ referenceUrl, renderUrl, renderLabel }: Props) {
   });
   const sideRef = useRef<Side | null>(null);
   const bar = useRef<HTMLDivElement | null>(null);
+  const stopRef = useRef<() => void>(() => undefined);
 
   const getContext = () => (context.current ??= new AudioContext());
 
@@ -45,16 +59,21 @@ export function ABPlayer({ referenceUrl, renderUrl, renderLabel }: Props) {
       source.current.disconnect();
       source.current = null;
     }
+    if (stopActive === stopRef.current) stopActive = null;
     sideRef.current = null;
     setSide(null);
     if (bar.current) bar.current.style.transform = "scaleX(0)";
   }, []);
+
+  stopRef.current = stop;
 
   const start = useCallback(async (which: Side, from: number) => {
     const buffer = buffers.current[which];
     if (!buffer) return;
     const ctx = getContext();
     await ctx.resume();
+    if (stopActive && stopActive !== stopRef.current) stopActive();
+    stopActive = stopRef.current;
     if (source.current) {
       source.current.onended = null;
       source.current.stop();
@@ -125,6 +144,7 @@ export function ABPlayer({ referenceUrl, renderUrl, renderLabel }: Props) {
   useEffect(
     () => () => {
       if (source.current) source.current.stop();
+      if (stopActive === stopRef.current) stopActive = null;
       void context.current?.close();
       context.current = null;
     },
@@ -140,7 +160,7 @@ export function ABPlayer({ referenceUrl, renderUrl, renderLabel }: Props) {
   }
 
   return (
-    <section className="panel ab" aria-label="A/B playback">
+    <section className={`panel ab${compact ? " ab-compact" : ""}`} aria-label="A/B playback">
       <div className="ab-buttons">
         <button
           type="button"
@@ -151,8 +171,8 @@ export function ABPlayer({ referenceUrl, renderUrl, renderLabel }: Props) {
         >
           <span className="ab-letter">A</span>
           <span>
-            <strong>Reference</strong>
-            <small>{status.a === "missing" ? "Audio missing" : side === "a" ? "Playing" : "The original sound"}</small>
+            <strong>{referenceLabel}</strong>
+            <small>{status.a === "missing" ? "Audio missing" : side === "a" ? "Playing" : referenceNote}</small>
           </span>
         </button>
         <button

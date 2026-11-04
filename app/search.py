@@ -84,7 +84,13 @@ def evaluate(recipe: dict[str, Any], target: Features) -> dict[str, Any]:
 class _Recorder:
     """Renders, scores and logs one recipe at a time, tracking the best so far."""
 
-    def __init__(self, target: Features, mode: str, seed: int, budget: int) -> None:
+    def __init__(
+        self, target: Features, mode: str, seed: int, budget: int, log_path: Path | None = None
+    ) -> None:
+        self.log_path = log_path
+        if log_path is not None:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text("")
         self.target = target
         self.mode = mode
         self.seed = seed
@@ -121,6 +127,10 @@ class _Recorder:
             self.best_entry = entry
         entry["best_loss"] = None if math.isinf(self.best_loss) else self.best_loss
         self.log.append(entry)
+        if self.log_path is not None:
+            # One complete line per render, so a live run can be read while it's going.
+            with self.log_path.open("a") as stream:
+                stream.write(json.dumps(entry) + "\n")
         return entry
 
 
@@ -133,11 +143,11 @@ def run_random(
 ) -> list[dict[str, Any]]:
     """Random-search baseline."""
     rng = np.random.default_rng(seed)
-    recorder = _Recorder(target, "random", seed, budget)
+    recorder = _Recorder(target, "random", seed, budget, log_path)
     while recorder.remaining > 0:
         recipe = to_recipe(sample_planner_recipe(rng), frequency_hz, target.duration_s)
         recorder.record(recipe, "random")
-    return _finish(recorder, log_path)
+    return recorder.log
 
 
 def _refine(
@@ -162,7 +172,7 @@ def run_optimizer_only(
     "tpe" searches structure and parameters together. "restart_local" takes the best of a
     few random structures, then fine-tunes it.
     """
-    recorder = _Recorder(target, "optimizer_only", seed, budget)
+    recorder = _Recorder(target, "optimizer_only", seed, budget, log_path)
     if method == "tpe":
         tpe = TpeSearch(seed)
         while recorder.remaining > 0:
@@ -178,7 +188,7 @@ def run_optimizer_only(
             _refine(recorder, recorder.remaining, search)
     else:
         raise ValueError(f"unknown optimizer method: {method}")
-    return _finish(recorder, log_path)
+    return recorder.log
 
 
 def _planner_context(
@@ -244,7 +254,7 @@ def run_hybrid(
     budget for it to matter. The optimizer then spends whatever budget is left.
     """
     rng = np.random.default_rng(seed)
-    recorder = _Recorder(target, "hybrid", seed, budget)
+    recorder = _Recorder(target, "hybrid", seed, budget, log_path)
     planner_call = 0
     planning = True
     search: LocalSearch | None = None
@@ -273,15 +283,4 @@ def run_hybrid(
                 search = LocalSearch(recipe, entry["loss"], rng)
             continue
         _refine(recorder, renders, search, planner_call=planner_call or None)
-    return _finish(recorder, log_path)
-
-
-def _finish(recorder: _Recorder, log_path: Path | None) -> list[dict[str, Any]]:
-    if log_path is not None:
-        write_log(recorder.log, log_path)
     return recorder.log
-
-
-def write_log(log: list[dict[str, Any]], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(entry) + "\n" for entry in log))

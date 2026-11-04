@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { AlchemyScreen } from "@/components/AlchemyScreen";
 
 export default function AlchemyPage() {
-  return <AlchemyScreen />;
+  return (
+    <Suspense>
+      <AlchemyScreen />
+    </Suspense>
+  );
 }

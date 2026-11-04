@@ -1,3 +1,4 @@
+import type { AlchemyResult } from "./alchemy";
 import type { Recipe, RunDetail, RunSummary } from "./runs";
 
 export class ApiError extends Error {
@@ -18,8 +19,11 @@ export interface Target {
   has_runs: boolean;
 }
 
+export type LiveMode = "hybrid" | "optimizer_only";
+
 export interface Analysis {
   name: string;
+  upload_id?: string;
   warnings: string[];
   descriptors: Record<string, number | null>;
   waveform: { min: number[]; max: number[] };
@@ -99,7 +103,21 @@ export const api = {
   meta: () => request<Meta>("/api/meta"),
   targets: () => request<Target[]>("/api/targets"),
   runs: () => request<RunSummary[]>("/api/runs"),
-  run: (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
+  run: (id: string, after = -1, signal?: AbortSignal) =>
+    request<RunDetail>(`/api/runs/${encodeURIComponent(id)}?after=${after}`, { signal }),
+  startRun: (target: string, mode: LiveMode) =>
+    request<{ id: string; status: string; budget: number }>("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, mode }),
+    }),
+  alchemy: (recipe: Recipe, prompt: string, signal?: AbortSignal) =>
+    request<AlchemyResult>("/api/alchemy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipe, prompt }),
+      signal,
+    }),
   analyzeTarget: (name: string) =>
     request<Analysis>(`/api/targets/${encodeURIComponent(name)}/analysis`),
   analyzeUpload: (file: File) => {

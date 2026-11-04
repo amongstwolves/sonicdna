@@ -210,21 +210,11 @@ def test_missing_target_audio_says_how_to_fix_it(dirs):
     assert "make_targets" in response.json()["detail"]["fix"]
 
 
-def test_held_out_can_be_played_but_not_analysed_or_scored(dirs):
-    assert client.get("/api/targets/secret/audio").status_code == 200
-    assert client.get("/api/targets/secret/analysis").status_code == 403
-    assert client.get("/api/targets/secret/spectrogram").status_code == 403
-    body = client.post("/api/render", json={"recipe": recipe(), "target": "secret"}).json()
-    assert body["loss"] is None and body["not_scored_reason"]
-
-
-def test_held_out_spectrogram_appears_once_a_run_is_logged(dirs):
-    write_run(dirs[0], "secret-hybrid-seed0", [today_entry(mode="hybrid", source="model")])
+def test_held_out_targets_are_open_now_the_evaluation_is_finished(dirs):
+    assert client.get("/api/targets/secret/analysis").status_code == 200
     assert client.get("/api/targets/secret/spectrogram").status_code == 200
-    assert client.get("/api/targets/secret/analysis").status_code == 403
-
-
-# ------------------------------------------------------------ runs and replay
+    body = client.post("/api/render", json={"recipe": recipe(), "target": "secret"}).json()
+    assert body["loss"] is not None and body["not_scored_reason"] is None
 
 
 def test_run_listing(dirs):
