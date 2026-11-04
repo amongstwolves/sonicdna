@@ -1,4 +1,8 @@
-"""Experiment loop and logging. The random-search baseline lives here for now."""
+"""Experiment loops and logging: random, optimizer-only and hybrid (AI + optimizer).
+
+All three spend the same kind of render budget through one recorder, so every render is
+logged the same way, with its provenance. Pitch always comes from the f0 estimate.
+"""
 
 from __future__ import annotations
 
@@ -13,23 +17,20 @@ import numpy as np
 from app.dsp import render
 from app.features import Features, extract
 from app.loss import compare
-from app.schema import BOUNDS, OSCILLATOR_TYPES, to_recipe
+from app.optimizer import LOG_SCALED, LocalSearch, TpeSearch
+from app.planner import PlannerContext, PlannerResult
+from app.schema import BOUNDS, OSCILLATOR_TYPES, MIN_CANDIDATES, to_planner_recipe, to_recipe
 
-# Sampled on a log scale, because equal ratios matter more than equal differences here.
-_LOG_SCALED = {
-    "oscillator_2.frequency_ratio",
-    "envelope.attack_s",
-    "envelope.decay_s",
-    "envelope.release_s",
-    "filter.cutoff_hz",
-    "delay.time_ms",
-}
 _NODE_ON_PROBABILITY = 0.5
+REFINE_RENDERS_PER_ROUND = 3
+_MIN_RENDERS_FOR_PLANNER_CALL = MIN_CANDIDATES + 2
+_RECENT_EXPERIMENTS_FOR_PLANNER = 8
+_RANDOM_STARTS_FOR_LOCAL_BASELINE = 5
 
 
 def _sample(rng: np.random.Generator, path: str) -> float:
     low, high = BOUNDS[path]
-    if path in _LOG_SCALED:
+    if path in LOG_SCALED:
         return float(math.exp(rng.uniform(math.log(low), math.log(high))))
     return float(rng.uniform(low, high))
 
@@ -61,15 +62,66 @@ def sample_planner_recipe(rng: np.random.Generator) -> dict[str, Any]:
 def evaluate(recipe: dict[str, Any], target: Features) -> dict[str, Any]:
     """Render and score one recipe. A failed render is reported, not raised."""
     try:
-        comparison = compare(target, extract(render(recipe)))
+        features = extract(render(recipe))
+        comparison = compare(target, features)
     except ValueError as error:
-        return {"loss": None, "components": None, "score": None, "failure": str(error)}
+        return {
+            "loss": None,
+            "components": None,
+            "score": None,
+            "descriptors": None,
+            "failure": str(error),
+        }
     return {
         "loss": comparison.loss,
         "components": comparison.components,
         "score": comparison.score,
+        "descriptors": features.descriptors(),
         "failure": None,
     }
+
+
+class _Recorder:
+    """Renders, scores and logs one recipe at a time, tracking the best so far."""
+
+    def __init__(self, target: Features, mode: str, seed: int, budget: int) -> None:
+        self.target = target
+        self.mode = mode
+        self.seed = seed
+        self.budget = budget
+        self.log: list[dict[str, Any]] = []
+        self.best_loss = math.inf
+        self.best_entry: dict[str, Any] | None = None
+
+    @property
+    def remaining(self) -> int:
+        return self.budget - len(self.log)
+
+    def record(self, recipe: dict[str, Any], source: str, **provenance: Any) -> dict[str, Any]:
+        result = evaluate(recipe, self.target)
+        is_best = result["loss"] is not None and result["loss"] < self.best_loss
+        entry = {
+            "index": len(self.log),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": self.mode,
+            "seed": self.seed,
+            "source": source,
+            "planner_call": None,
+            "hypothesis": None,
+            "rationale": None,
+            "expected_effect": None,
+            **provenance,
+            "recipe": recipe,
+            **result,
+            "is_best": is_best,
+            "best_loss": None,
+        }
+        if is_best:
+            self.best_loss = result["loss"]
+            self.best_entry = entry
+        entry["best_loss"] = None if math.isinf(self.best_loss) else self.best_loss
+        self.log.append(entry)
+        return entry
 
 
 def run_random(
@@ -79,32 +131,155 @@ def run_random(
     seed: int,
     log_path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Random-search baseline. Every render is logged, in order, with best-so-far status."""
+    """Random-search baseline."""
     rng = np.random.default_rng(seed)
-    log: list[dict[str, Any]] = []
-    best_loss = math.inf
-    for index in range(budget):
+    recorder = _Recorder(target, "random", seed, budget)
+    while recorder.remaining > 0:
         recipe = to_recipe(sample_planner_recipe(rng), frequency_hz, target.duration_s)
-        result = evaluate(recipe, target)
-        is_best = result["loss"] is not None and result["loss"] < best_loss
-        if is_best:
-            best_loss = result["loss"]
-        log.append(
-            {
-                "index": index,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "mode": "random",
-                "seed": seed,
-                "source": "random",
-                "recipe": recipe,
-                **result,
-                "is_best": is_best,
-                "best_loss": None if math.isinf(best_loss) else best_loss,
-            }
+        recorder.record(recipe, "random")
+    return _finish(recorder, log_path)
+
+
+def _refine(
+    recorder: _Recorder, renders: int, search: LocalSearch, **provenance: Any
+) -> None:
+    for _ in range(min(renders, recorder.remaining)):
+        recipe = search.propose()
+        entry = recorder.record(recipe, "optimizer", **provenance)
+        search.report(recipe, entry["loss"])
+
+
+def run_optimizer_only(
+    target: Features,
+    frequency_hz: float,
+    budget: int,
+    seed: int,
+    log_path: Path | None = None,
+    method: str = "tpe",
+) -> list[dict[str, Any]]:
+    """Optimizer with no model. Picks its own structure, so it is a fair baseline.
+
+    "tpe" searches structure and parameters together. "restart_local" takes the best of a
+    few random structures, then fine-tunes it.
+    """
+    recorder = _Recorder(target, "optimizer_only", seed, budget)
+    if method == "tpe":
+        tpe = TpeSearch(seed)
+        while recorder.remaining > 0:
+            recipe = to_recipe(tpe.propose(), frequency_hz, target.duration_s)
+            tpe.report(recorder.record(recipe, "optimizer")["loss"])
+    elif method == "restart_local":
+        rng = np.random.default_rng(seed)
+        for _ in range(min(_RANDOM_STARTS_FOR_LOCAL_BASELINE, budget)):
+            recipe = to_recipe(sample_planner_recipe(rng), frequency_hz, target.duration_s)
+            recorder.record(recipe, "optimizer")
+        if recorder.best_entry is not None:
+            search = LocalSearch(recorder.best_entry["recipe"], recorder.best_loss, rng)
+            _refine(recorder, recorder.remaining, search)
+    else:
+        raise ValueError(f"unknown optimizer method: {method}")
+    return _finish(recorder, log_path)
+
+
+def _planner_context(
+    recorder: _Recorder, target: Features, spectrogram_png: bytes | None
+) -> PlannerContext:
+    recent = [
+        {
+            "source": entry["source"],
+            "recipe": to_planner_recipe(entry["recipe"]),
+            "normalized_loss": entry["loss"],
+            "loss_components": entry["components"],
+        }
+        for entry in recorder.log[-_RECENT_EXPERIMENTS_FOR_PLANNER:]
+        if entry["loss"] is not None
+    ]
+    best = recorder.best_entry
+    return PlannerContext(
+        descriptors=target.descriptors(),
+        spectrogram_png=spectrogram_png,
+        remaining_budget=recorder.remaining,
+        best_recipe=None if best is None else to_planner_recipe(best["recipe"]),
+        best_loss=None if best is None else best["loss"],
+        best_descriptors=None if best is None else best["descriptors"],
+        recent=recent,
+    )
+
+
+def _record_candidates(
+    recorder: _Recorder,
+    result: PlannerResult,
+    planner_call: int,
+    frequency_hz: float,
+    duration_s: float,
+) -> None:
+    for candidate in result.candidates[: recorder.remaining]:
+        recipe = to_recipe(candidate["proposed_recipe_or_delta"], frequency_hz, duration_s)
+        recorder.record(
+            recipe,
+            result.source,
+            planner_call=planner_call,
+            hypothesis=candidate["hypothesis"],
+            rationale=candidate["rationale"],
+            expected_effect=candidate["expected_effect"],
+            planner_attempts=result.attempts,
+            planner_latency_s=round(result.latency_s, 2),
+            planner_error=result.error,
         )
+
+
+def run_hybrid(
+    target: Features,
+    frequency_hz: float,
+    budget: int,
+    seed: int,
+    planner: Any,
+    spectrogram_png: bytes | None = None,
+    log_path: Path | None = None,
+    refine_per_round: int = REFINE_RENDERS_PER_ROUND,
+) -> list[dict[str, Any]]:
+    """AI + optimizer: planner candidates, then fine-tuning, then the next planner call.
+
+    Planning stops after a "stop" action, a fallback, the planner's call cap, or too little
+    budget for it to matter. The optimizer then spends whatever budget is left.
+    """
+    rng = np.random.default_rng(seed)
+    recorder = _Recorder(target, "hybrid", seed, budget)
+    planner_call = 0
+    planning = True
+    search: LocalSearch | None = None
+
+    while recorder.remaining > 0:
+        if planning and planner.can_call and recorder.remaining >= _MIN_RENDERS_FOR_PLANNER_CALL:
+            planner_call += 1
+            result = planner.plan(_planner_context(recorder, target, spectrogram_png))
+            _record_candidates(recorder, result, planner_call, frequency_hz, target.duration_s)
+            planning = result.source == "model" and result.action != "stop"
+            # A better recipe from the planner restarts fine-tuning from there.
+            if recorder.best_entry is not None and (
+                search is None or recorder.best_loss < search.best_loss
+            ):
+                search = LocalSearch(recorder.best_entry["recipe"], recorder.best_loss, rng)
+            renders = refine_per_round if planning else recorder.remaining
+        else:
+            planning = False
+            renders = recorder.remaining
+
+        if search is None:
+            # Nothing rendered successfully. Spend the rest on random draws, not silence.
+            recipe = to_recipe(sample_planner_recipe(rng), frequency_hz, target.duration_s)
+            entry = recorder.record(recipe, "fallback", planner_call=planner_call or None)
+            if entry["loss"] is not None:
+                search = LocalSearch(recipe, entry["loss"], rng)
+            continue
+        _refine(recorder, renders, search, planner_call=planner_call or None)
+    return _finish(recorder, log_path)
+
+
+def _finish(recorder: _Recorder, log_path: Path | None) -> list[dict[str, Any]]:
     if log_path is not None:
-        write_log(log, log_path)
-    return log
+        write_log(recorder.log, log_path)
+    return recorder.log
 
 
 def write_log(log: list[dict[str, Any]], path: Path) -> None:

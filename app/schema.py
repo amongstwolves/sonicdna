@@ -80,6 +80,23 @@ PLANNER_OUTPUT_SCHEMA = _obj(
 )
 
 
+MIN_CANDIDATES = 3
+MAX_CANDIDATES = 5
+
+# One planner call proposes several recipes, because each call takes about 28 s.
+PLANNER_RESPONSE_SCHEMA = _obj(
+    action={"type": "string", "enum": ACTIONS},
+    candidates={
+        "type": "array",
+        "items": _obj(
+            hypothesis={"type": "string"},
+            proposed_recipe_or_delta=PLANNER_RECIPE_SCHEMA,
+            expected_effect={"type": "string"},
+            rationale={"type": "string"},
+        ),
+    },
+)
+
 RECIPE_SCHEMA = _obj(
     schema_version={"type": "string", "enum": [SCHEMA_VERSION]},
     sample_rate={"type": "integer", "enum": [SAMPLE_RATE]},
@@ -139,3 +156,28 @@ def validate_planner_output(output: Any) -> list[str]:
     if errors:
         return errors
     return bounds_errors(output["proposed_recipe_or_delta"])
+
+
+def validate_planner_response(response: Any) -> list[str]:
+    """Every reason to reject a multi-candidate response. Empty means it is valid."""
+    errors = _schema_errors(PLANNER_RESPONSE_SCHEMA, response)
+    if errors:
+        return errors
+    candidates = response["candidates"]
+    if response["action"] != "stop" and not MIN_CANDIDATES <= len(candidates) <= MAX_CANDIDATES:
+        errors.append(
+            f"expected {MIN_CANDIDATES}-{MAX_CANDIDATES} candidates, got {len(candidates)}"
+        )
+    for index, candidate in enumerate(candidates):
+        errors += [
+            f"candidates/{index}: {error}"
+            for error in bounds_errors(candidate["proposed_recipe_or_delta"])
+        ]
+    return errors
+
+
+def to_planner_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
+    """The planner's view of a full recipe: no pitch, sample rate or duration."""
+    planner = {key: copy.deepcopy(recipe[key]) for key in PLANNER_RECIPE_SCHEMA["properties"]}
+    del planner["oscillator"]["frequency_hz"]
+    return planner

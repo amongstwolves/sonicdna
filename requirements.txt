@@ -11,3 +11,4 @@ scipy==1.17.1
 soundfile==0.14.0
 uvicorn==0.54.0
 pytest==9.2.0
+nodeenv==1.12.0

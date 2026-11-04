@@ -8,6 +8,13 @@ Status values: Not started · In progress · Done · Blocked · Cut
 **Wed ~1:00 AM ET:** AI + optimizer must beat optimizer-only on ≥2 of 3 held-out targets (20-render budget).
 If not, keep building, but pitch the AI as *directing and explaining* the search, not outperforming it.
 
+## Held-out rule (written before the held-out run, Nov 4 ~11:15 AM ET)
+
+Targets: glass_pluck, fuzz_lead, echo_stack. Budget 20 renders, seeds 0-2, one run only, no tuning afterwards.
+Settings frozen: muse-spark-1.3, default reasoning effort, 3 optimizer renders between planner calls.
+A target is an AI win only if the hybrid's median best normalized loss is lower than **both** optimizer-only methods' (`tpe` and `restart_local`), because dev runs didn't clearly separate them.
+Pass: AI wins at least 2 of 3. Otherwise stop tuning, report it, and move on to Alchemy and integration.
+
 ## Pre-code fixes
 
 | # | Issue | Fix | Status |
@@ -23,7 +30,7 @@ If not, keep building, but pitch the AI as *directing and explaining* the search
 |---|---|---|---|---|---|
 | Tue Nov 3 | 4:30–6:00 PM | API access confirmed, decisions locked, repo scaffolded | One valid structured response from Muse | Done | Nov 4: muse-spark-1.3 returned schema- and bounds-valid JSON with spectrogram PNG + strict schema (HTTP 200, 28.3 s, 3,366 output tokens, 3,003 of them reasoning). Its structure guess was wrong on the known-answer tone: added a second oscillator and called a decaying tone sustained. |
 | Tue Nov 3 | 6:00–10:00 PM | Renderer, features, loss, target generator, random-search baseline | A loss curve from the command line | Done | Nov 4: `scripts/loss_curve.py` on 9 dev targets, random search, budget 20, seed 0: median best loss 0.050 (ground-truth recipe at estimated pitch: 0.001-0.013). Pitch estimate tested within 25 cents on all 12 targets. Descriptors for the planner now include level over time (planner not built yet). |
-| Tue–Wed | 10:00 PM–1:00 AM | Planner + optimizer loop, experiment logging, 3-target comparison | Hybrid beats optimizer-only on ≥2 of 3 targets (go/no-go) | Not started | |
+| Tue–Wed | 10:00 PM–1:00 AM | Planner + optimizer loop, experiment logging, 3-target comparison | Hybrid beats optimizer-only on ≥2 of 3 targets (go/no-go) | Done | **No-go, Nov 4 11:19 AM ET.** Median best normalized loss (hybrid / tpe / restart_local): glass_pluck 0.2977 / 0.1950 / 0.1916, fuzz_lead 0.0313 / 0.0241 / 0.0370, echo_stack 0.0444 / 0.0732 / 0.0454. AI wins 1 of 3 under the written rule (2 of 3 against restart_local alone, 1 of 3 against tpe alone). 27 calls, no fallbacks. No further tuning; pitch the AI as directing and explaining the search. |
 | Wed Nov 4 | 9:00 AM–2:00 PM | UI: upload, spectrograms, timeline, score chart, A/B, 3 sliders | End-to-end run in the browser | Not started | |
 | Wed Nov 4 | 2:00–4:00 PM | One Alchemy transform, JSON export | One distinct variant | Not started | |
 | Wed Nov 4 | 4:00–6:00 PM | Deploy, final comparison chart | Public link works | Not started | |
