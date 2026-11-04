@@ -85,6 +85,33 @@ SONICDNA_RUNS_DIR=demo .venv/bin/uvicorn app.api:app --port 8000
 
 The UI labels it as a replay, and it makes no model calls. It's `echo_stack`, the one target AI won, using that target's median seed. It isn't typical of all targets, so read it alongside the results above.
 
+## Public demo
+
+The hosted demo runs in public mode (`SONICDNA_PUBLIC=1`, set in the `Dockerfile`). It holds no Meta API key, so it can't make model calls, and it stores no uploads. Visitors can replay the recorded AI run, edit recipes, use Alchemy and start optimizer-only runs. To start a live AI run or upload your own sound, run SonicDNA locally with your own key.
+
+To run the same image locally:
+
+```bash
+docker build -t sonicdna-public .
+```
+
+```bash
+docker run --rm -p 10000:10000 sonicdna-public
+```
+
+Then open http://localhost:10000.
+
+To deploy on Render, choose **New > Blueprint** and connect this repo. `render.yaml` defines the service. Never add `META_API_KEY` to it or to the service's environment.
+
+Measured in a container on an Apple Silicon Mac, limited to 512 MB. These numbers are from local limits, not from Render:
+
+| | 0.1 CPU (Render Free) | 0.5 CPU (Render Starter) |
+|---|---|---|
+| Start until ready | 66 s | 5 s |
+| First target analysis | 20 s | 1 s |
+| Alchemy, three variants | 71 s | 3.6 s |
+| 20-render optimizer-only run, after a 20 s or 1 s start | 6 s | 2 s |
+
 ## Tests and experiments
 
 ```bash

@@ -107,6 +107,15 @@ export function DecodeScreen() {
   return (
     <div className="decode-grid">
       <aside className="stack">
+        {meta?.public_mode ? (
+          <section className="panel" aria-label="About this demo">
+            <h2>Public demo</h2>
+            <p className="muted">
+              Uploads and live AI runs are off here. <Link href="/lab">Replay the recorded AI run</Link>,
+              or pick a test sound below.
+            </p>
+          </section>
+        ) : (
         <section className="panel">
           <h2>Upload a sound</h2>
           <div
@@ -150,9 +159,10 @@ export function DecodeScreen() {
             </small>
           </div>
         </section>
+        )}
 
         <section className="panel">
-          <h2>Or pick a test sound</h2>
+          <h2>{meta?.public_mode ? "Pick a test sound" : "Or pick a test sound"}</h2>
           <p className="muted">Made with our own synth, so the true recipe is known.</p>
           {listError ? <ErrorNote error={listError} /> : null}
           <ul className="target-list">

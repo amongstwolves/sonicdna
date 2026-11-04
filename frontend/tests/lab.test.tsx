@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LabScreen } from "@/components/LabScreen";
+import { StartRunPanel } from "@/components/StartRunPanel";
 import { installAudioStub, jsonResponse, recipe } from "./helpers";
 
 let search = new URLSearchParams();
@@ -260,5 +261,26 @@ describe("starting a live run", () => {
     render(<LabScreen />);
     await open();
     expect(screen.getByRole("radio", { name: "AI + optimizer" })).toBeTruthy();
+  });
+});
+
+describe("StartRunPanel in public mode", () => {
+  it("disables the AI option, says why, and keeps optimizer-only available", () => {
+    render(
+      <StartRunPanel
+        targets={[{ name: "echo_stack", held_out: true, available: true, has_runs: true }]}
+        initialTarget="echo_stack"
+        busy={false}
+        blocked={false}
+        error={null}
+        runningRunId={null}
+        publicMode
+        onStart={() => undefined}
+        onCancel={() => undefined}
+      />,
+    );
+    expect((screen.getByLabelText("AI + optimizer") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Optimizer only") as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getByRole("note").textContent).toContain("off on this public demo");
   });
 });

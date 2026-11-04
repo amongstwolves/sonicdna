@@ -62,6 +62,7 @@ def write_run(runs_dir, name, entries):
 def dirs(tmp_path, monkeypatch):
     runs_dir = tmp_path / "logs"
     targets_dir = tmp_path / "targets"
+    monkeypatch.setenv("SONICDNA_LIVE_DIR", str(tmp_path / "live"))
     runs_dir.mkdir()
     targets_dir.mkdir()
     audio = render(recipe())
@@ -230,6 +231,7 @@ def test_run_listing(dirs):
 
 def test_missing_runs_dir_lists_nothing(tmp_path, monkeypatch):
     monkeypatch.setenv("SONICDNA_RUNS_DIR", str(tmp_path / "nowhere"))
+    monkeypatch.setenv("SONICDNA_LIVE_DIR", str(tmp_path / "nowhere-live"))
     assert client.get("/api/runs").json() == []
 
 

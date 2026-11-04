@@ -18,6 +18,8 @@ import re
 import secrets
 import threading
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,7 @@ from typing import Any
 import numpy as np
 import soundfile
 from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.alchemy import AlchemyError, generate_variants, parse_goal
@@ -66,10 +69,25 @@ _ENTRY_FIELDS = (
     "best_loss",
 )
 
-app = FastAPI(title="SonicDNA API")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """On a slow public server, finish loading before the port opens, not during a request."""
+    if os.environ.get("SONICDNA_WARM_START"):
+        from scripts.warm_cache import warm
+
+        warm()
+    yield
+
+
+app = FastAPI(title="SonicDNA API", lifespan=_lifespan)
 
 _LIVE_LOCK = threading.Lock()
 _LIVE_RUNS: dict[str, dict[str, Any]] = {}
+
+
+def _public_mode() -> bool:
+    """A public deployment: no model calls and nothing stored from visitors."""
+    return os.environ.get("SONICDNA_PUBLIC", "").strip().lower() in ("1", "true", "yes")
 
 
 def _runs_dir() -> Path:
@@ -290,6 +308,7 @@ def health() -> dict[str, str]:
 @app.get("/api/meta")
 def meta() -> dict[str, Any]:
     return {
+        "public_mode": _public_mode(),
         "loss_weights": WEIGHTS,
         "recipe_bounds": {path: list(bound) for path, bound in RECIPE_BOUNDS.items()},
         "upload_limits": {
@@ -322,10 +341,16 @@ def target_audio(name: str) -> Response:
     return Response(_wav_bytes(audio, sample_rate), media_type="audio/wav")
 
 
+@lru_cache(maxsize=32)
+def _target_analysis_cached(name: str, _path: str, _modified: float) -> dict[str, Any]:
+    """Pitch tracking is the slowest read on a small server, and targets don't change."""
+    return {"name": name, "warnings": [], **_analysis(_reference(name)[0])}
+
+
 @app.get("/api/targets/{name}/analysis")
 def target_analysis(name: str) -> dict[str, Any]:
-    _target_wav(name)
-    return {"name": name, "warnings": [], **_analysis(_reference(name)[0])}
+    path = _target_wav(name)
+    return _target_analysis_cached(name, str(path), path.stat().st_mtime)
 
 
 @app.get("/api/targets/{name}/spectrogram")
@@ -337,6 +362,13 @@ def target_spectrogram(name: str) -> Response:
 @app.post("/api/analyze")
 def analyze_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     """Validate and analyse an uploaded WAV. Stored locally so a live run can use it."""
+    if _public_mode():
+        raise _error(
+            403,
+            "uploads_disabled",
+            "Uploads are off on the public demo.",
+            "Pick a test sound, or run SonicDNA locally to use your own.",
+        )
     payload = file.file.read(MAX_UPLOAD_BYTES + 1)
     audio, sample_rate, warnings = _validate_upload(file.filename or "", payload)
     processed = preprocess(audio, sample_rate)
@@ -536,6 +568,13 @@ def start_run(request: RunRequest) -> dict[str, Any]:
     """Start one live run in the background, then poll GET /api/runs/{id}?after=N."""
     if request.mode not in ("hybrid", "optimizer_only"):
         raise _error(422, "unknown_mode", f"There is no run mode called '{request.mode}'.")
+    if request.mode == "hybrid" and _public_mode():
+        raise _error(
+            403,
+            "ai_runs_disabled",
+            "Live AI runs are off on the public demo.",
+            "Replay the recorded AI run, start an optimizer-only run, or run SonicDNA locally.",
+        )
     if not 1 <= request.budget <= MAX_LIVE_BUDGET:
         raise _error(422, "bad_budget", f"Budget must be 1 to {MAX_LIVE_BUDGET} renders.")
     audio = _reference(request.target)[0]
@@ -591,3 +630,12 @@ def alchemy(request: AlchemyRequest) -> dict[str, Any]:
         variant["audio"] = _data_url("audio/wav", _wav_bytes(audio))
         variant["spectrogram"] = _data_url("image/png", spectrogram_png(audio))
     return result
+
+
+def mount_frontend(target: FastAPI, directory: str) -> None:
+    """Serve the exported frontend. Mounted last, so every /api route still wins."""
+    target.mount("/", StaticFiles(directory=directory, html=True), name="frontend")
+
+
+if os.environ.get("SONICDNA_STATIC_DIR"):
+    mount_frontend(app, os.environ["SONICDNA_STATIC_DIR"])

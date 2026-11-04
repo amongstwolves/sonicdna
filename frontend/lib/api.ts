@@ -31,6 +31,7 @@ export interface Analysis {
 }
 
 export interface Meta {
+  public_mode?: boolean;
   loss_weights: Record<string, number>;
   recipe_bounds: Record<string, [number, number]>;
   upload_limits: {
@@ -64,7 +65,7 @@ export function oversizeError(size: number, maxBytes = DEFAULT_MAX_UPLOAD_BYTES)
 
 const UNREACHABLE = new ApiError(
   "The SonicDNA API isn't responding.",
-  "Start it with: .venv/bin/uvicorn app.api:app --port 8000",
+  "Try again in a minute. Running locally? Start it with: .venv/bin/uvicorn app.api:app --port 8000",
   "unreachable",
 );
 

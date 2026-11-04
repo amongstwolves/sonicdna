@@ -14,6 +14,7 @@ export function StartRunPanel({
   blocked,
   error,
   runningRunId,
+  publicMode = false,
   onStart,
   onCancel,
 }: {
@@ -23,6 +24,7 @@ export function StartRunPanel({
   blocked: boolean;
   error: unknown;
   runningRunId: string | null;
+  publicMode?: boolean;
   onStart: (target: string, mode: LiveMode) => void;
   onCancel: () => void;
 }) {
@@ -61,6 +63,7 @@ export function StartRunPanel({
               type="radio"
               name="live-mode"
               checked={mode === "hybrid"}
+              disabled={publicMode}
               onChange={() => setMode("hybrid")}
             />
             AI + optimizer
@@ -77,6 +80,12 @@ export function StartRunPanel({
         </fieldset>
         <span className="muted">Budget: 20 renders</span>
       </div>
+      {publicMode ? (
+        <p className="muted" role="note">
+          Live AI runs are off on this public demo. The recorded AI run in the Lab is a real one,
+          and the README shows how to run SonicDNA locally with your own Meta API key.
+        </p>
+      ) : null}
       {mode === "hybrid" ? (
         <p className="start-disclosure" role="note">
           <strong>Sent to Meta:</strong> {START_DISCLOSURE}

@@ -1,0 +1,15 @@
+.env
+.env.*
+.git
+.venv
+.vscode
+.DS_Store
+.pytest_cache
+__pycache__
+data
+runs
+listen
+tests
+frontend/node_modules
+frontend/.next
+frontend/out

@@ -427,6 +427,7 @@ export function LabScreen() {
           blocked={isRunning}
           error={startError}
           runningRunId={runningRunId}
+          publicMode={meta?.public_mode === true}
           onStart={(target, mode) => void startRun(target, mode)}
           onCancel={() => setPanelOpen(false)}
         />

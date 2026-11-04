@@ -23,7 +23,7 @@ while preserving a chosen property.
 6. **Alchemy v1 = brightness** (spectral-centroid target) with a preserve-pitch constraint.
    Demo prompt: "brighter and more atmospheric, keep the pitch." Only add a tremolo LFO node (rate, depth) if time allows —
    the original "metallic, preserve the rhythmic pulse" line is NOT supported by the current graph.
-7. **Stack (changed Nov 4 at Albert's request):** Next.js frontend in `frontend/` with a thin FastAPI layer in `app/api.py`. Host: decide early (Render, Railway, or HF Spaces).
+7. **Stack (changed Nov 4 at Albert's request):** Next.js frontend in `frontend/` with a thin FastAPI layer in `app/api.py`. Host: Render, one Docker service in public mode, with no Meta API key on the server.
 8. **Export:** JSON recipe required; WAV optional.
 
 ## Architecture
